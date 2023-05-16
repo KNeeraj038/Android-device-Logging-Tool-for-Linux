@@ -14,6 +14,12 @@ declare -A ERROR_MESSAGES=(
   [10]=" "
 )
 
+remove_whitespace() {
+    input_string="$1"
+    cleaned_string=$(echo "$input_string" | sed 's/ /-/g')
+    echo "$cleaned_string"
+}
+
 # Set error code to 0 by default
 error_code=0
 
@@ -76,7 +82,14 @@ fi
 
 # Parse command line arguments
 filename=""
-foldername="$(adb -s $selected_device shell getprop ro.product.manufacturer)_$(adb -s $selected_device shell getprop ro.product.model)"
+manufacturer_name_pre=$(adb -s $selected_device shell getprop ro.product.manufacturer)
+echo "Pre man: "$manufacturer_name_pre
+manufacturer_name=$(remove_whitespace "$manufacturer_name_pre")
+echo "Manufacturer name "$manufacturer_name
+model_name_raw=$(adb -s $selected_device shell getprop ro.product.model)
+model_number=$(remove_whitespace "$model_name_raw")
+seperator="_"
+foldername="$manufacturer_name$seperator$model_number"
 while getopts ":f:" opt; do
   case $opt in
     f)
@@ -95,6 +108,7 @@ done
 
 echo "filename"$filename
 echo "Folder name: "$foldername
+echo "Log dump path: "$foldername$filename
 
 # If no filename is specified, use the default filename "logcat"
 if [ -z "$filename" ]; then
@@ -105,7 +119,10 @@ divider="_"
 date=$(date +%Y%m%d_%H%M%S)
 extension=".log"
 filename=$filename$divider$date$extension
-full_file_path=$foldername/$filename
+finalFolderName="/media/kneeraj/HDD/logs/"
+full_file_path=$finalFolderName$foldername/$filename
+
+echo $full_file_path
 
 # # Create log file
 # if ! touch "$full_file_path"; then
