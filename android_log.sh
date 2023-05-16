@@ -1,4 +1,4 @@
-
+#!/bin/bash
 
 # Map of error codes and error messages
 declare -A ERROR_MESSAGES=(
@@ -14,128 +14,124 @@ declare -A ERROR_MESSAGES=(
   [10]=" "
 )
 
+# Function to remove whitespace from a string
 remove_whitespace() {
     input_string="$1"
     cleaned_string=$(echo "$input_string" | sed 's/ /-/g')
     echo "$cleaned_string"
 }
 
-# Set error code to 0 by default
-error_code=0
-
 # Check if adb is installed
-if ! command -v adb &> /dev/null
-then
-    echo ${ERROR_MESSAGES[1]}
-    error_code=1
-fi
+check_adb_installed() {
+  if ! command -v adb &> /dev/null
+  then
+      echo ${ERROR_MESSAGES[1]}
+      return 1
+  fi
+}
 
-# Run adb devices command and store the output
-adb_devices_output=$(adb devices)
+# Get connected devices
+get_connected_devices() {
+  adb_devices_output=$(adb devices)
+  connected_devices=$(echo "$adb_devices_output" | grep "device$" | awk '{print $1}')
+  if [ -z "$connected_devices" ]; then
+      echo ${ERROR_MESSAGES[2]}
+      return 2
+  fi
+}
 
-# Extract the list of connected devices
-connected_devices=$(echo "$adb_devices_output" | grep "device$" | awk '{print $1}')
+# Prompt user for device selection
+select_device() {
+  num_devices=$(echo "$connected_devices" | wc -l)
+  if [ "$num_devices" -gt 1 ]; then
+      echo "Multiple devices connected. Please select a device:"
 
-# Check if there are connected devices
-if [ -z "$connected_devices" ]; then
-    echo ${ERROR_MESSAGES[2]}
-    error_code=2
-fi
+      index=1
+      while IFS= read -r device; do
+          echo "$index) $device"
+          ((index++))
+      done <<< "$connected_devices"
 
-# Check if there is more than one connected device
-num_devices=$(echo "$connected_devices" | wc -l)
-if [ "$num_devices" -gt 1 ]; then
-    echo "Multiple devices connected. Please select a device:"
+      read -rp "Enter the device number: " device_index
 
-    # Print the list of connected devices with indices
-    index=1
-    while IFS= read -r device; do
-        echo "$index) $device"
-        ((index++))
-    done <<< "$connected_devices"
+      if [[ "$device_index" =~ ^[0-9]+$ ]] && [ "$device_index" -ge 1 ] && [ "$device_index" -le "$num_devices" ]; then
+          selected_device=$(echo "$connected_devices" | sed -n "${device_index}p")
+          echo "Selected device: $selected_device"
+      else
+          echo ${ERROR_MESSAGES[8]}
+          return 8
+      fi
+  else
+      selected_device=$connected_devices
+      echo "Connected device: $selected_device"
+  fi
+}
 
-    # Prompt the user for device selection
-    read -rp "Enter the device number: " device_index
+# Process command line arguments
+process_arguments() {
+  filename=$1
+  manufacturer_name_pre=$(adb -s $selected_device shell getprop ro.product.manufacturer)
+  manufacturer_name=$(remove_whitespace "$manufacturer_name_pre")
+  model_name_raw=$(adb -s $selected_device shell getprop ro.product.model)
+  model_number=$(remove_whitespace "$model_name_raw")
+  separator="_"
+  foldername="$manufacturer_name$separator$model_number"
+  while getopts ":f:" opt; do
+    case $opt in
+      f)
+        filename=$OPTARG
+        echo "file is picked and will be updated"
+        ;;
+      \?)
+        echo ${ERROR_MESSAGES[3]}
+        return 3
+        ;;
+      :)
+        echo ${ERROR_MESSAGES[3]}
+        return 3
+        ;;
+    esac
+  done
+  echo "Filename: "$filename
+  if [ -z "$filename" ]; then
+    filename="logcat"
+  fi
+   echo "Filename post: "$filename
+  divider=""
+  date=$(date +%Y%m%d%H%M%S)
+  extension=".log"
+  filename=$filename$divider$date$extension
+  finalFolderName="/media/kneeraj/HDD/logs/"
+  full_file_path=$finalFolderName$foldername/$filename
 
-    # Validate the selected index
-    if [[ "$device_index" =~ ^[0-9]+$ ]] && [ "$device_index" -ge 1 ] && [ "$device_index" -le "$num_devices" ]; then
-        # Extract the selected device
-        selected_device=$(echo "$connected_devices" | sed -n "${device_index}p")
-        echo "Selected device: $selected_device"
-    else
-        echo ${ERROR_MESSAGES[8]}
-        error_code=8
-    fi
-else
-    # Only one device connected, directly assign it
-    selected_device=$connected_devices
-    echo "Connected device: $selected_device"
-fi
+  echo $full_file_path
+}
 
-# # Check if device is connected
-# devices=$(adb devices | sed '1d' | awk '{print $1}')
-# if [ -z "$devices" ]
-# then
-#     echo ${ERROR_MESSAGES[2]}
-#     error_code=2
-# fi
+# Create log file
+create_log_file() {
+  if ! mkdir -p "$(dirname "$full_file_path")"; then
+    echo ${ERROR_MESSAGES[5]}
+    return 5
+  fi
 
-# Parse command line arguments
-filename=""
-manufacturer_name_pre=$(adb -s $selected_device shell getprop ro.product.manufacturer)
-echo "Pre man: "$manufacturer_name_pre
-manufacturer_name=$(remove_whitespace "$manufacturer_name_pre")
-echo "Manufacturer name "$manufacturer_name
-model_name_raw=$(adb -s $selected_device shell getprop ro.product.model)
-model_number=$(remove_whitespace "$model_name_raw")
-seperator="_"
-foldername="$manufacturer_name$seperator$model_number"
-while getopts ":f:" opt; do
-  case $opt in
-    f)
-      filename=$OPTARG
-      ;;
-    \?)
-      echo ${ERROR_MESSAGES[3]}
-      error_code=3
-      ;;
-    :)
-      echo ${ERROR_MESSAGES[3]}
-      error_code=3
-      ;;
-  esac
-done
+  if ! touch "$full_file_path"; then
+    echo ${ERROR_MESSAGES[6]}
+    return 6
+  fi
+}
 
-echo "filename"$filename
-echo "Folder name: "$foldername
-echo "Log dump path: "$foldername$filename
+take_logcat() {
+  echo "Command used to take logs: adb -s $selected_device logcat"
+  adb -s $selected_device logcat > $full_file_path | glogg $full_file_path > /dev/null 2>&1
+}
 
-# If no filename is specified, use the default filename "logcat"
-if [ -z "$filename" ]; then
-  filename="logcat"
-fi
+main() {
+  check_adb_installed || return 1
+  get_connected_devices || return 2
+  select_device || return 8
+  process_arguments "$1" || return 3
+  create_log_file || return 6
+  take_logcat
+}
 
-divider="_"
-date=$(date +%Y%m%d_%H%M%S)
-extension=".log"
-filename=$filename$divider$date$extension
-finalFolderName="/media/kneeraj/HDD/logs/"
-full_file_path=$finalFolderName$foldername/$filename
-
-echo $full_file_path
-
-# # Create log file
-# if ! touch "$full_file_path"; then
-#   echo ${ERROR_MESSAGES[6]}
-#   # exit 6
-# fi
-
-# Get logcat output and write to log file
-if [ $error_code -eq 0 ]
-then
-    echo "Command used to take logs -- adb -s $selected_device logcat"
-    adb -s $selected_device logcat > $full_file_path | glogg $full_file_path > /dev/null 2>&1
-    # echo "No errors found."
-else
-    echo "Error: ${ERROR_MESSAGES[$error_code]}"
-fi
+main $1
