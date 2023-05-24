@@ -1,4 +1,4 @@
-# LoggingTool-in-Linux
+# AndroidLoggingTool-Linux
 
 To make your script accessible from anywhere in Linux, you can add it to a directory listed in the `PATH` environment variable. Here's how you can do it:
 
